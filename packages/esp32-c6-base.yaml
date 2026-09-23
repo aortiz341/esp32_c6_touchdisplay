@@ -101,14 +101,6 @@ text_sensor:
     entity_id: sensor.dexcom_glucose_trend # Modify to match your exact entity ID
     internal: true
 
-# Dynamically loads fonts from Google Fonts
-font:
-  - file: "gfonts://Roboto"
-    id: font_large
-    size: 48
-  - file: "gfonts://Roboto"
-    id: font_small
-    size: 18
 
 
 
