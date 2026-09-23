@@ -1,0 +1,114 @@
+esphome:
+  name: esp32-c6-display
+  friendly_name: "1.47 Inch Touch Display"
+
+# 1. System Framework (ESP32-C6 requires ESP-IDF framework)
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  framework:
+    type: esp-idf
+
+# 2. Network & Home Assistant Integration
+wifi:
+  ssid: "YOUR_WIFI_SSID"
+  password: "YOUR_WIFI_PASSWORD"
+
+api: # Enables native connection to Home Assistant
+
+logger:
+
+# 3. SPI Bus for the Display
+spi:
+  clk_pin: GPIO7
+  mosi_pin: GPIO6
+
+# 4. Backlight Output & Switch
+output:
+  - platform: gpio
+    pin: GPIO22
+    id: backlight_pin
+
+switch:
+  - platform: output
+    name: "Display Backlight"
+    output: backlight_pin
+    id: backlight_switch
+    restore_mode: ALWAYS_ON
+
+# 5. Display Config (Driven via ST7789 compatibility driver)
+display:
+  - platform: st7789v
+    model: Custom
+    cs_pin: GPIO14
+    dc_pin: GPIO15
+    reset_pin: GPIO21
+    width: 172
+    height: 320
+    offset_height: 0
+    offset_width: 34
+    eightbitcolor: true
+    data_rate: 40MHz
+    lambda: |-
+      // Clean canvas on each pass
+      it.fill(Color(15, 15, 15));
+
+      // Header label
+      it.print(10, 10, id(font_small), Color(200, 200, 200), "DEXCOM G7");
+
+      // Render Blood Glucose measurements
+      if (id(glucose_value).has_state()) {
+        float bg = id(glucose_value).state;
+        
+        // Define color states based on BG value
+        Color bg_color = Color(255, 255, 255); // Default: White
+        if (bg <= 70.0) {
+          bg_color = Color(244, 67, 54);    // Low: Red
+        } else if (bg >= 180.0) {
+          bg_color = Color(255, 193, 7);   // High: Yellow
+        } else {
+          bg_color = Color(76, 175, 80);    // In-Range: Green
+        }
+
+        it.printf(10, 40, id(font_large), bg_color, "%.0f", bg);
+      } else {
+        it.print(10, 40, id(font_large), Color(120, 120, 120), "---");
+      }
+
+      // Render Glucose Trend Indicator (Arrows or Text description)
+      if (id(glucose_trend).has_state()) {
+        std::string trend = id(glucose_trend).state;
+        it.printf(130, 55, id(font_small), Color(230, 230, 230), "%s", trend.c_str());
+      }
+font:
+  - file: "gfonts://Roboto"
+    id: font_title
+    size: 20
+  - file: "gfonts://Roboto"
+    id: font_main
+    size: 16
+
+# Import Dexcom G7 sensors from your Home Assistant integration
+sensor:
+  - platform: homeassistant
+    id: glucose_value
+    entity_id: sensor.dexcom_glucose_value # Modify to match your exact entity ID
+    internal: true
+
+text_sensor:
+  - platform: homeassistant
+    id: glucose_trend
+    entity_id: sensor.dexcom_glucose_trend # Modify to match your exact entity ID
+    internal: true
+
+# Dynamically loads fonts from Google Fonts
+font:
+  - file: "gfonts://Roboto"
+    id: font_large
+    size: 48
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 18
+
+
+
