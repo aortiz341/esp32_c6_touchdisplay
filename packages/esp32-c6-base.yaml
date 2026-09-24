@@ -1,106 +1,318 @@
+# =============================================================================
+# ESPHome configuration — Waveshare ESP32-C6-Touch-LCD-1.47
+#   ESP32-C6FH8  |  8 MB Flash  |  1.47" IPS capacitive touch  |  172x320
+#   Display driver:  JD9853 (ST7789-compatible -> ili9xxx / ST7789V model)
+#   Touch driver:    AXS5106L (I2C)  -- NOT native to ESPHome, needs external component
+#   Orientation: VERTICAL (172 wide x 320 tall). See bottom of file for horizontal.
+# =============================================================================
+# IMPORTANT:
+#   1) The AXS5106L touchscreen is not built into ESPHome. The `external_components`
+#      block below pulls it in. Touch + LVGL touch input will not compile without it.
+#      To test the DISPLAY ONLY, comment out external_components, i2c, touchscreen,
+#      lvgl.touchscreens, and the touch-driven widgets/binary_sensors.
+#   2) Secrets (!secret ...) must exist in your secrets.yaml, or replace them inline.
+#      See the "SECRETS" list at the bottom of this file.
+#   3) Replace light.example_light with your real Home Assistant light entity id.
+#   4) Home Assistant action calls (homeassistant.action) from ESPHome must be
+#      enabled in HA: ESPHome integration -> device -> Configure -> allow actions.
+# =============================================================================
+
 esphome:
   name: esp32-c6-display
   friendly_name: "1.47 Inch Touch Display"
+  on_boot:
+    priority: 600            # late boot — turn the backlight on at startup
+    then:
+      - light.turn_on: backlight
 
-# 1. System Framework (ESP32-C6 requires ESP-IDF framework)
+# 1. System framework (ESP32-C6 requires ESP-IDF)
 esp32:
   board: esp32-c6-devkitc-1
   variant: esp32c6
+  flash_size: 8MB            # Touch-LCD-1.47 = ESP32-C6FH8 / 8 MB. Non-touch LCD-1.47 is 4 MB.
   framework:
     type: esp-idf
 
-# 2. Network & Home Assistant Integration
-wifi:
-  ssid: "YOUR_WIFI_SSID"
-  password: "YOUR_WIFI_PASSWORD"
-
-api: # Enables native connection to Home Assistant
-
+# 2. Logging
 logger:
 
-# 3. SPI Bus for the Display
+# 3. Network & Home Assistant integration
+wifi:
+  ssid: Riverahouse         # <-- change me
+  password: Adri1517
+  # Optional static IP (comment out to use DHCP)
+  # manual_ip:
+  #   static_ip: 192.168.1.50
+  #   gateway: 192.168.1.1
+  #   subnet: 255.255.255.0
+  # Fallback hotspot if WiFi fails
+  ap:
+    ssid: "ESP32-C6 Display Fallback"
+    password: Adri1517
+    
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret dexcom_g7_display__encryption_key
+ota:
+  - platform: esphome
+    password: Adri151 
+# Sync time from Home Assistant. on_time fires every second (no constraints)
+# and refreshes the LVGL clock label.
+time:
+  - platform: homeassistant
+    id: esptime
+    on_time:
+      - seconds: '*'            # fire every second
+        then:
+          - lvgl.label.update:
+              id: clock_label
+              text:
+                time_format: "%H:%M:%S"
+                time: !lambda return id(esptime).now();
+
+# 4. External component for the AXS5106L touchscreen (NOT native to ESPHome)
+external_components:
+  - source: github://widget/esphome-components
+    components: [axs5106]
+    refresh: 0s
+
+# 5. SPI bus for the display (4-wire SPI, no MISO needed for write-only LCD)
 spi:
-  clk_pin: GPIO7
-  mosi_pin: GPIO6
+  clk_pin: GPIO1
+  mosi_pin: GPIO2
+  # miso_pin: GPIO3   # uncomment if you wire the SD card reader
 
-# 4. Backlight Output & Switch
+# 6. I2C bus for the AXS5106L touchscreen
+i2c:
+  id: bus_a
+  sda: GPIO18
+  scl: GPIO19
+  frequency: 400kHz
+  scan: false
+
+# 7. Backlight — dimmable via LEDC PWM so LVGL can dim/blank it as a screen saver.
+#    GPIO23 is a Priority-2 pin on the ESP32-C6 and routes fine to an LEDC channel.
 output:
-  - platform: gpio
-    pin: GPIO22
-    id: backlight_pin
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO23
+    frequency: 1000Hz
 
-switch:
-  - platform: output
+light:
+  - platform: monochromatic
+    id: backlight
     name: "Display Backlight"
-    output: backlight_pin
-    id: backlight_switch
+    output: backlight_pwm
     restore_mode: ALWAYS_ON
+    default_transition_length: 300ms
 
-# 5. Display Config (Driven via ST7789 compatibility driver)
-display:
-  - platform: st7789v
-    model: Custom
-    cs_pin: GPIO14
-    dc_pin: GPIO15
-    reset_pin: GPIO21
-    width: 172
-    height: 320
-    offset_height: 0
-    offset_width: 34
-    eightbitcolor: true
-    data_rate: 40MHz
-    lambda: |-
-      // Clean canvas on each pass
-      it.fill(Color(15, 15, 15));
+# 8. Colors used by LVGL styles
+color:
+  - id: color_black
+    hex: "000000"
+  - id: color_white
+    hex: "FFFFFF"
+  - id: color_blue
+    hex: "0000FF"
+  - id: color_green
+    hex: "00FF00"
+  - id: color_red
+    hex: "FF0000"
+  - id: color_yellow
+    hex: "FFFF00"
+  - id: color_gray
+    hex: "C6C6C6"
 
-      // Header label
-      it.print(10, 10, id(font_small), Color(200, 200, 200), "DEXCOM G7");
-
-      // Render Blood Glucose measurements
-      if (id(glucose_value).has_state()) {
-        float bg = id(glucose_value).state;
-        
-        // Define color states based on BG value
-        Color bg_color = Color(255, 255, 255); // Default: White
-        if (bg <= 70.0) {
-          bg_color = Color(244, 67, 54);    // Low: Red
-        } else if (bg >= 180.0) {
-          bg_color = Color(255, 193, 7);   // High: Yellow
-        } else {
-          bg_color = Color(76, 175, 80);    // In-Range: Green
-        }
-
-        it.printf(10, 40, id(font_large), bg_color, "%.0f", bg);
-      } else {
-        it.print(10, 40, id(font_large), Color(120, 120, 120), "---");
-      }
-
-      // Render Glucose Trend Indicator (Arrows or Text description)
-      if (id(glucose_trend).has_state()) {
-        std::string trend = id(glucose_trend).state;
-        it.printf(130, 55, id(font_small), Color(230, 230, 230), "%s", trend.c_str());
-      }
+# 9. Fonts (loaded from Google Fonts at compile time)
 font:
   - file: "gfonts://Roboto"
-    id: font_title
-    size: 20
+    id: font_24
+    size: 24
   - file: "gfonts://Roboto"
-    id: font_main
+    id: font_16
     size: 16
+  - file: "gfonts://Roboto"
+    id: font_12
+    size: 12
 
-# Import Dexcom G7 sensors from your Home Assistant integration
-sensor:
+# 10. Touchscreen — AXS5106L
+#     on_release wakes the screen if LVGL was paused by the idle screen-saver.
+touchscreen:
+  - platform: axs5106
+    id: my_touchscreen
+    interrupt_pin: GPIO21
+    reset_pin: GPIO20
+    calibration:
+      x_min: 0
+      y_min: 0
+      x_max: 172
+      y_max: 320
+    transform:
+      mirror_x: true
+    on_touch:
+      - lambda: |-
+          ESP_LOGD("touch", "Touch at x=%d y=%d", touch.x, touch.y);
+    on_release:
+      - if:
+          condition:
+            lvgl.is_paused:
+          then:
+            - light.turn_on: backlight
+            - lvgl.resume:
+
+# 11. Display — JD9853 as ST7789V (vertical orientation)
+#     LVGL owns rendering: NO lambda, auto_clear off, update_interval never.
+display:
+  - platform: ili9xxx
+    id: lcd
+    model: ST7789V
+    dc_pin:
+      number: GPIO15
+      ignore_strapping_warning: true
+    cs_pin: GPIO14
+    reset_pin: GPIO22
+    dimensions:
+      width: 172
+      height: 320
+      offset_width: 34
+      offset_height: 0
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: false
+    invert_colors: false
+    color_order: bgr
+    data_rate: 40MHz
+    auto_clear_enabled: false
+    update_interval: never
+
+# 12. LVGL UI
+#     ESP32-C6 has NO PSRAM (512 KB SRAM). buffer_size: 25% keeps the partial
+#     render buffer small (~27 KB). Drop to 12% or 10% if you hit OOM at runtime.
+lvgl:
+  buffer_size: 25%
+  displays:
+    - lcd
+  touchscreens:
+    - touchscreen_id: my_touchscreen
+  # Screen saver: after 30s of no touch, blank the backlight and pause LVGL.
+  # Any touch (see touchscreen.on_release above) wakes it back up.
+  on_idle:
+    timeout: 30s
+    then:
+      - light.turn_off: backlight
+      - lvgl.pause:
+  pages:
+    - id: main_page
+      widgets:
+        # Title
+        - label:
+            align: TOP_MID
+            y: 10
+            text: "ESPHome"
+            text_color: color_white
+        # Live clock from Home Assistant time
+        - label:
+            id: clock_label
+            align: TOP_MID
+            y: 45
+            text: "--:--:--"
+            text_color: color_green
+        # A tappable button that toggles a Home Assistant light.
+        # Replace light.example_light with your real entity id.
+        - button:
+            id: light_btn
+            align: CENTER
+            width: 140
+            height: 70
+            checkable: true
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Light"
+            on_click:
+              - homeassistant.action:
+                  action: light.toggle
+                  data:
+                    entity_id: light.example_light
+        # Footer
+        - label:
+            align: BOTTOM_MID
+            y: -10
+            text: "Touch LCD 1.47"
+            text_color: color_yellow
+
+# 13. Import the real HA light state so the button reflects it, and expose the
+#     button itself as a binary_sensor in Home Assistant.
+binary_sensor:
+  # Mirrors the LVGL button's checked/pressed state into HA
+  - platform: lvgl
+    name: "Display Light Button"
+    widget: light_btn
+    publish_initial_state: true
+
+  # Subscribes to the real HA light so we can sync the button's visual state
   - platform: homeassistant
-    id: glucose_value
-    entity_id: sensor.dexcom_glucose_value # Modify to match your exact entity ID
-    internal: true
+    id: example_light_state
+    entity_id: light.example_light
+    publish_initial_state: true
+    on_state:
+      then:
+        - lvgl.widget.update:
+            id: light_btn
+            state:
+              checked: !lambda return x;
 
-text_sensor:
-  - platform: homeassistant
-    id: glucose_trend
-    entity_id: sensor.dexcom_glucose_trend # Modify to match your exact entity ID
-    internal: true
+# =============================================================================
+# HORIZONTAL ORIENTATION (optional)
+#   Swap to these values if you mount the board sideways (320 wide x 172 tall):
+#
+#   display:
+#     dimensions:
+#       width: 320
+#       height: 172
+#       offset_width: 0
+#       offset_height: 34
+#     transform:
+#       swap_xy: true
+#       mirror_x: false
+#       mirror_y: false
+#
+#   touchscreen:
+#     calibration:
+#       x_min: 0
+#       y_min: 0
+#       x_max: 320
+#       y_max: 172
+#     transform:
+#       swap_xy: true
+# =============================================================================
 
-
-
-
+# =============================================================================
+# CONFIGURATION VALUES TO CHANGE (search for "<-- change me" above):
+#
+#   wifi ssid/password      — your WiFi credentials
+#   fallback AP password    — any password for the captive hotspot
+#   API encryption key      — generate with: openssl rand -base64 32
+#   OTA password            — any password for OTA updates
+#
+#   light.example_light     — your real Home Assistant light entity id
+#                             (appears in the LVGL button on_click AND the
+#                              homeassistant binary_sensor entity_id)
+#
+# ALTERNATIVELY, use a secrets.yaml file:
+#   1) Create secrets.yaml in the same folder with a FLAT mapping (not a list):
+#        wifi_ssid: "MyWiFi"
+#        wifi_password: "MyPassword"
+#        fallback_ap_password: "ChooseFallbackPassword"
+#        api_encryption_key: "GENERATED_BASE64_KEY"
+#        ota_password: "ChooseOTAPassword"
+#   2) Replace the inline values above with !secret references, e.g.:
+#        ssid: !secret wifi_ssid
+#      IMPORTANT: keep !secret and the key on the SAME line as a scalar.
+#      Writing it across lines or as a list will trigger:
+#        TypeError: cannot use 'list' as a dict key (unhashable type: 'list')
+# =============================================================================
