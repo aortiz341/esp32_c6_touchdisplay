@@ -38,8 +38,8 @@ logger:
 
 # 3. Network & Home Assistant integration
 wifi:
-  ssid: Riverahouse         # <-- change me
-  password: Adri1517
+  ssid: !secret        # <-- change me
+  password: !secret
   # Optional static IP (comment out to use DHCP)
   # manual_ip:
   #   static_ip: 192.168.1.50
@@ -58,7 +58,7 @@ api:
     key: !secret dexcom_g7_display__encryption_key
 ota:
   - platform: esphome
-    password: Adri151 
+    password: !secret
 # Sync time from Home Assistant. on_time fires every second (no constraints)
 # and refreshes the LVGL clock label.
 time:
