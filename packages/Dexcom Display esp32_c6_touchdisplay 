@@ -1,0 +1,189 @@
+# =============================================================================
+# ESPHome configuration — Waveshare ESP32-C6-Touch-LCD-1.47
+#   Dark display showing blood glucose from Home Assistant Dexcom integration.
+#   Green: 70-200 | Red: 201+ | Blue: below 70
+# =============================================================================
+# Replace sensor.dexcom_glucose_value with your actual entity id.
+# The Dexcom integration creates: sensor.dexcom_<username>_glucose_value
+# =============================================================================
+
+esphome:
+  name: esp32-c6-display
+  friendly_name: "1.47 Inch Touch Display"
+  on_boot:
+    priority: 600
+    then:
+      - light.turn_on: backlight
+
+# 1. System framework (ESP32-C6 requires ESP-IDF)
+esp32:
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+
+# 2. Logging
+logger:
+
+# 3. Network & Home Assistant integration
+wifi:
+  ssid: "YOUR_WIFI_SSID"          # <-- change me
+  password: "YOUR_WIFI_PASSWORD"    # <-- change me
+  ap:
+    ssid: "ESP32-C6 Display Fallback"
+    password: "ChooseFallbackPassword"  # <-- change me
+
+captive_portal:
+
+api:
+  encryption:
+    # Generate your own: openssl rand -base64 32
+    key: "REPLACE_WITH_32BYTE_BASE64_KEY"  # <-- change me
+
+ota:
+  - platform: esphome
+    password: "ChooseOTAPassword"  # <-- change me
+
+# 4. External component for the AXS5106L touchscreen (NOT native to ESPHome)
+external_components:
+  - source: github://widget/esphome-components
+    components: [axs5106]
+    refresh: 0s
+
+# 5. SPI bus for the display
+spi:
+  clk_pin: GPIO1
+  mosi_pin: GPIO2
+
+# 6. I2C bus for the AXS5106L touchscreen
+i2c:
+  id: bus_a
+  sda: GPIO18
+  scl: GPIO19
+  frequency: 400kHz
+  scan: false
+
+# 7. Backlight — always on, dimmable via LEDC PWM
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO23
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: "Display Backlight"
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 300ms
+
+# 8. Fonts — large for the glucose number, small for the unit label
+font:
+  - file: "gfonts://Roboto"
+    id: font_48
+    size: 48
+  - file: "gfonts://Roboto"
+    id: font_16
+    size: 16
+
+# 9. Touchscreen — AXS5106L (kept configured for potential future use)
+touchscreen:
+  - platform: axs5106
+    id: my_touchscreen
+    interrupt_pin: GPIO21
+    reset_pin: GPIO20
+    calibration:
+      x_min: 0
+      y_min: 0
+      x_max: 172
+      y_max: 320
+    transform:
+      mirror_x: true
+
+# 10. Display — JD9853 as ST7789V (vertical orientation, dark)
+display:
+  - platform: ili9xxx
+    id: lcd
+    model: ST7789V
+    dc_pin:
+      number: GPIO15
+      ignore_strapping_warning: true
+    cs_pin: GPIO14
+    reset_pin: GPIO22
+    dimensions:
+      width: 172
+      height: 320
+      offset_width: 34
+      offset_height: 0
+    transform:
+      swap_xy: false
+      mirror_x: true
+      mirror_y: false
+    invert_colors: false
+    color_order: bgr
+    data_rate: 40MHz
+    auto_clear_enabled: false
+    update_interval: never
+
+# 11. Pull glucose value from Home Assistant Dexcom integration
+sensor:
+  - platform: homeassistant
+    id: glucose_value
+    entity_id: sensor.dexcom_glucose_value  # <-- replace with your Dexcom entity
+    # Color logic: green 70-200, red 201+, blue below 70
+    on_value:
+      - lvgl.label.update:
+          id: glucose_label
+          text: !lambda |-
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%.0f", x);
+            return std::string(buf);
+          text_color: !lambda |-
+            if (x > 200)
+              return lv_color_hex(0xFF0000);  // red
+            else if (x < 70)
+              return lv_color_hex(0x0000FF);  // blue
+            else
+              return lv_color_hex(0x00FF00);  // green
+
+# 12. LVGL UI — dark background, glucose number centered, unit label below
+lvgl:
+  buffer_size: 25%
+  displays:
+    - lcd
+  touchscreens:
+    - touchscreen_id: my_touchscreen
+  style_definitions:
+    - id: dark_bg
+      bg_color: 0x000000
+  pages:
+    - id: main_page
+      styles: dark_bg
+      widgets:
+        # Large glucose number, centered
+        - label:
+            id: glucose_label
+            align: CENTER
+            text: "---"
+            text_color: 0x888888
+            text_font: font_48
+        # Unit label below the number
+        - label:
+            align: BOTTOM_MID
+            y: -20
+            text: "mg/dL"
+            text_color: 0x888888
+            text_font: font_16
+
+# =============================================================================
+# CONFIGURATION VALUES TO CHANGE (search for "<-- change me" or "<-- replace"):
+#
+#   WiFi ssid/password     — your WiFi credentials
+#   fallback AP password    — any password for the captive hotspot
+#   API encryption key      — generate with: openssl rand -base64 32
+#   OTA password            — any password for OTA updates
+#   sensor.dexcom_glucose_value — your Dexcom entity from Home Assistant
+#     (format: sensor.dexcom_<username>_glucose_value)
+# =============================================================================
