@@ -48,7 +48,7 @@ wifi:
   # Fallback hotspot if WiFi fails
   ap:
     ssid: "ESP32-C6 Display Fallback"
-    password: Adri1517
+    password: !secret
     
 
 captive_portal:
