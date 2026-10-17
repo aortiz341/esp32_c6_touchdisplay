@@ -42,9 +42,9 @@ wifi:
   password: !secret
   # Optional static IP (comment out to use DHCP)
   # manual_ip:
-  #   static_ip: 192.168.1.50
-  #   gateway: 192.168.1.1
-  #   subnet: 255.255.255.0
+  #   static_ip: 
+  #   gateway: 
+  #   subnet:
   # Fallback hotspot if WiFi fails
   ap:
     ssid: "ESP32-C6 Display Fallback"
